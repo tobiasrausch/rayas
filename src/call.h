@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iomanip>
 
+#include <boost/dynamic_bitset.hpp>
 #include <boost/program_options/cmdline.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -19,6 +20,8 @@
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/progress.hpp>
+#include <boost/accumulators/accumulators.hpp>
+#include <boost/accumulators/statistics.hpp>
 
 namespace ted
 {
@@ -52,7 +55,9 @@ namespace ted
       idx[file_c] = sam_index_load(samfile[file_c], c.files[file_c].string().c_str());
     }
     bam_hdr_t* hdr = sam_hdr_read(samfile[0]);
-
+    faidx_t* fai = fai_load(c.genome.string().c_str());
+    char* seq = NULL;
+    
     // Iterate all samples
     for(uint32_t file_c = 0; file_c < c.files.size(); ++file_c) {
       // Parse genome, process chromosome by chromosome
@@ -80,6 +85,19 @@ namespace ted
 	TClipStore read2;
 	std::vector<uint16_t> left(hdr->target_len[refIndex], 0);
 	std::vector<uint16_t> right(hdr->target_len[refIndex], 0);
+	std::vector<uint16_t> cov(hdr->target_len[refIndex], 0);
+	uint16_t maxval = std::numeric_limits<uint16_t>::max();
+
+	// Load sequence
+	int32_t seqlen = -1;
+	seq = faidx_fetch_seq(fai, hdr->target_name[refIndex], 0, hdr->target_len[refIndex], &seqlen);
+	typedef boost::dynamic_bitset<> TBitSet;
+	TBitSet nrun(hdr->target_len[refIndex], 0);
+	for(uint32_t i = 0; i < hdr->target_len[refIndex]; ++i) {
+	  if ((seq[i] == 'n') || (seq[i] == 'N')) nrun[i] = 1;
+	}
+	if (seq != NULL) free(seq);
+	
 	
 	// Read alignments
 	hts_itr_t* iter = sam_itr_queryi(idx[file_c], refIndex, 0, hdr->target_len[refIndex]);
@@ -97,6 +115,8 @@ namespace ted
 	  uint32_t* cigar = bam_get_cigar(rec);
 	  for (std::size_t i = 0; i < rec->core.n_cigar; ++i) {
 	    if ((bam_cigar_op(cigar[i]) == BAM_CMATCH) || (bam_cigar_op(cigar[i]) == BAM_CEQUAL) || (bam_cigar_op(cigar[i]) == BAM_CDIFF)) {
+	      for(std::size_t k = 0; k<bam_cigar_oplen(cigar[i]);++k)
+		if (cov[rp] < maxval) ++cov[rp];
 	      sp += bam_cigar_oplen(cigar[i]);
 	      rp += bam_cigar_oplen(cigar[i]);
 	    } else if (bam_cigar_op(cigar[i]) == BAM_CDEL) {
@@ -105,8 +125,11 @@ namespace ted
 	      sp += bam_cigar_oplen(cigar[i]);
 	    } else if ((bam_cigar_op(cigar[i]) == BAM_CSOFT_CLIP) || (bam_cigar_op(cigar[i]) == BAM_CHARD_CLIP)) {
 	      if (bam_cigar_oplen(cigar[i]) >= c.minClip) {
-		if (sp == 0) left[rp] += 1;
-		else right[rp] += 1;
+		if (sp == 0) {
+		  if (left[rp] < maxval) left[rp] += 1;
+		} else {
+		  if (right[rp] < maxval) right[rp] += 1;
+		}
 		//if (rec->core.flag & BAM_FREAD1) read1.push_back(std::make_pair(seed, rp));
 		//else read2.push_back(std::make_pair(seed, rp));
 	      }
@@ -121,15 +144,53 @@ namespace ted
 	bam_destroy1(rec);
 	hts_itr_destroy(iter);
 
-	// Erase noise
-	for(uint32_t i = 0; i < hdr->target_len[refIndex]; ++i) {
-	  if (left[i] < c.minSplit) left[i] = 0;
-	  else {
-	    std::cerr << hdr->target_name[refIndex] << ',' << i << ',' << left[i] << ",left" << std::endl;
+	// Get background coverage
+	uint32_t seedwin = 200;
+	if (2 * seedwin < hdr->target_len[refIndex]) {
+	  boost::accumulators::accumulator_set<double, boost::accumulators::features<boost::accumulators::tag::mean, boost::accumulators::tag::variance> > acc;
+	  for(uint32_t i = seedwin; i < hdr->target_len[refIndex]; i = i + seedwin) {
+	    uint32_t lcov = 0;
+	    bool ncontent = false;
+	    for(uint32_t k = i - seedwin; k < i; ++k) {
+	      if (nrun[k]) {
+		ncontent = true;
+		break;
+	      }
+	      lcov += cov[k];
+	    }
+	    if (!ncontent) acc(lcov);
 	  }
-	  if (right[i] < c.minSplit) right[i] = 0;
-	  else {
-	    std::cerr << hdr->target_name[refIndex] << ',' << i << ',' << right[i] << ",right" << std::endl;
+	  uint32_t sdcov = sqrt(boost::accumulators::variance(acc));
+	  uint32_t avgcov = boost::accumulators::mean(acc);
+
+	  // Erase noise
+	  for(uint32_t i = seedwin; i < hdr->target_len[refIndex] - seedwin; ++i) {
+	    if (left[i] < c.minSplit) left[i] = 0;
+	    else {
+	      uint32_t lcov = 0;
+	      bool ncontent = false;
+	      for(uint32_t k = i; k < i + seedwin; ++k) {
+		if (nrun[k]) {
+		  ncontent = true;
+		  break;
+		}
+		lcov += cov[k];
+	      }
+	      if ((!ncontent) && (lcov > avgcov + 3 * sdcov)) std::cerr << hdr->target_name[refIndex] << ',' << i << ',' << left[i] << ",left," << cov[i] << std::endl;
+	    }
+	    if (right[i] < c.minSplit) right[i] = 0;
+	    else {
+	      uint32_t lcov = 0;
+	      bool ncontent = false;
+	      for(uint32_t k = i - seedwin; k < i; ++k) {
+		if (nrun[k]) {
+		  ncontent = true;
+		  break;
+		}
+		lcov += cov[k];
+	      } 
+	      if ((!ncontent) && (lcov > avgcov + 3 * sdcov)) std::cerr << hdr->target_name[refIndex] << ',' << i << ',' << right[i] << ",right," << cov[i] << std::endl;
+	    }
 	  }
 	}
       }
@@ -137,6 +198,7 @@ namespace ted
     
     // Clean-up
     bam_hdr_destroy(hdr);
+    fai_destroy(fai);
     for(unsigned int file_c = 0; file_c < c.files.size(); ++file_c) {
       hts_idx_destroy(idx[file_c]);
       sam_close(samfile[file_c]);
