@@ -1,4 +1,7 @@
 *~
+.htslib
+bin/
+src/ted
 
 # Prerequisites
 *.d

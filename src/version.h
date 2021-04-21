@@ -16,7 +16,7 @@ namespace ted
       std::cout << "certain conditions (BSD License); for license details use '-l'." << std::endl;
       std::cout << "This program comes with ABSOLUTELY NO WARRANTY; for details use '-w'." << std::endl;
       std::cout <<  std::endl;
-      std::cout <<  title << " (Version: " << sansaVersionNumber << ")" << std::endl;
+      std::cout <<  title << " (Version: " << tedVersionNumber << ")" << std::endl;
       std::cout << "Contact: Tobias Rausch (rausch@embl.de)" << std::endl;
       std::cout << "**********************************************************************" << std::endl;
       std::cout << std::endl;

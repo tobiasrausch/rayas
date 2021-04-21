@@ -21,7 +21,7 @@ displayUsage() {
   std::cout << std::endl;
   std::cout << "Commands:" << std::endl;
   std::cout << std::endl;
-  std::cout << "    annotate     annotate VCF file" << std::endl;
+  std::cout << "    call     discover templated insertions" << std::endl;
   std::cout << std::endl;
   std::cout << std::endl;
 }
@@ -52,8 +52,8 @@ int main(int argc, char **argv) {
     bsd();
     return 0;
   }
-  else if ((std::string(argv[1]) == "annotate")) {
-    return annotate(argc-1,argv+1);
+  else if ((std::string(argv[1]) == "call")) {
+    return call(argc-1,argv+1);
   } else {
     std::cerr << "Unrecognized command " << std::string(argv[1]) << std::endl;
     return 1;

@@ -76,47 +76,10 @@ namespace ted
     
     // Check command line arguments
     if ((vm.count("help")) || (!vm.count("input-file"))) {
-      std::cout << "Usage: ted " << argv[0] << " [OPTIONS] input.bcf" << std::endl;
+      std::cout << "Usage: ted " << argv[0] << " [OPTIONS] input.bam" << std::endl;
       std::cout << visible_options << "\n";
       return -1;
     }
-
-    // SV database
-    if (!vm.count("db")) {
-      // Set input SV file as DB to fill chr array
-      c.db = c.infile;
-    }
-    
-    // Match SV types
-    if (vm.count("notype")) c.matchSvType = false;
-    else c.matchSvType = true;
-
-    // Report no matches
-    if (vm.count("nomatch")) c.reportNoMatch = true;
-    else c.reportNoMatch = false;
-
-    // Report contained genes
-    if (vm.count("contained")) c.containedGenes = true;
-    else c.containedGenes = false;
-    
-    // Check size ratio
-    if (c.sizediff < 0) c.sizediff = 0;
-    else if (c.sizediff > 1) c.sizediff = 1;
-
-    // Check strategy
-    if (strategy == "all") c.bestMatch = false;
-    else c.bestMatch = true;
-
-    // Check output directory
-    if (!_outfileValid(c.matchfile)) return 1;
-    if (!_outfileValid(c.annofile)) return 1;
-
-    // GTF/GFF3/BED
-    if (vm.count("gtf")) {
-      if (is_gff3(c.gtfFile)) c.gtfFileFormat = 2; // GFF3
-      else if (is_gtf(c.gtfFile)) c.gtfFileFormat = 0; // GTF/GFF2
-      else c.gtfFileFormat = 1;  // BED
-    } else c.gtfFileFormat = -1;
 
     // Show cmd
     boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();
