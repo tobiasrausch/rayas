@@ -25,6 +25,8 @@ namespace ted
 
   struct CallConfig {
     uint16_t minMapQual;
+    uint16_t minClip;
+    uint16_t minSplit;
     boost::filesystem::path genome;
     boost::filesystem::path outfile;
     std::vector<boost::filesystem::path> files;
@@ -55,7 +57,7 @@ namespace ted
     for(uint32_t file_c = 0; file_c < c.files.size(); ++file_c) {
       // Parse genome, process chromosome by chromosome
       boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();
-      std::cout << '[' << boost::posix_time::to_simple_string(now) << "] " << "Parsing..." << c.files[file_c].string() << std::endl;
+      std::cout << '[' << boost::posix_time::to_simple_string(now) << "] " << "Parsing... " << c.files[file_c].string() << std::endl;
       boost::progress_display show_progress( c.files.size() * hdr->n_targets );
       for(int32_t refIndex=0; refIndex < (int32_t) hdr->n_targets; ++refIndex) {
 	++show_progress;
@@ -71,19 +73,26 @@ namespace ted
 	if (mapped) nodata = false;
 	if (nodata) continue;
 
+	// Store soft-clips
+	typedef std::pair<std::size_t, uint32_t> TPosRead;
+	typedef std::vector<TPosRead> TClipStore;
+	TClipStore read1;
+	TClipStore read2;
+	std::vector<uint16_t> left(hdr->target_len[refIndex], 0);
+	std::vector<uint16_t> right(hdr->target_len[refIndex], 0);
+	
 	// Read alignments
 	hts_itr_t* iter = sam_itr_queryi(idx[file_c], refIndex, 0, hdr->target_len[refIndex]);
 	bam1_t* rec = bam_init1();
 	while (sam_itr_next(samfile[file_c], iter, rec) >= 0) {
 	  if (rec->core.flag & (BAM_FQCFAIL | BAM_FDUP | BAM_FUNMAP)) continue;
 	  if ((rec->core.qual < c.minMapQual) || (rec->core.tid<0)) continue;
-	  /*
 	  std::size_t seed = hash_string(bam_get_qname(rec));
 
 	  // SV detection using single-end read
 	  uint32_t rp = rec->core.pos; // reference pointer
 	  uint32_t sp = 0; // sequence pointer
-
+	  
 	  // Parse the CIGAR
 	  uint32_t* cigar = bam_get_cigar(rec);
 	  for (std::size_t i = 0; i < rec->core.n_cigar; ++i) {
@@ -91,32 +100,38 @@ namespace ted
 	      sp += bam_cigar_oplen(cigar[i]);
 	      rp += bam_cigar_oplen(cigar[i]);
 	    } else if (bam_cigar_op(cigar[i]) == BAM_CDEL) {
-	      //if (bam_cigar_oplen(cigar[i]) > c.minRefSep) _insertJunction(readBp, seed, rec, rp, sp, false);
 	      rp += bam_cigar_oplen(cigar[i]);
-	      //if (bam_cigar_oplen(cigar[i]) > c.minRefSep) _insertJunction(readBp, seed, rec, rp, sp, true);
 	    } else if (bam_cigar_op(cigar[i]) == BAM_CINS) {
-	      //if (bam_cigar_oplen(cigar[i]) > c.minRefSep) _insertJunction(readBp, seed, rec, rp, sp, false);
 	      sp += bam_cigar_oplen(cigar[i]);
-	      //if (bam_cigar_oplen(cigar[i]) > c.minRefSep) _insertJunction(readBp, seed, rec, rp, sp, true);
 	    } else if ((bam_cigar_op(cigar[i]) == BAM_CSOFT_CLIP) || (bam_cigar_op(cigar[i]) == BAM_CHARD_CLIP)) {
-	      int32_t finalsp = sp;
-	      bool scleft = false;
-	      if (sp == 0) {
-		finalsp += bam_cigar_oplen(cigar[i]); // Leading soft-clip / hard-clip
-		scleft = true;
+	      if (bam_cigar_oplen(cigar[i]) >= c.minClip) {
+		if (sp == 0) left[rp] += 1;
+		else right[rp] += 1;
+		//if (rec->core.flag & BAM_FREAD1) read1.push_back(std::make_pair(seed, rp));
+		//else read2.push_back(std::make_pair(seed, rp));
 	      }
 	      sp += bam_cigar_oplen(cigar[i]);
-	      //if (bam_cigar_oplen(cigar[i]) > c.minClip) _insertJunction(readBp, seed, rec, rp, finalsp, scleft);
 	    } else if (bam_cigar_op(cigar[i]) == BAM_CREF_SKIP) {
 	      rp += bam_cigar_oplen(cigar[i]);
 	    } else {
 	      std::cerr << "Warning: Unknown Cigar operation!" << std::endl;
 	    }
 	  }
-	  */
 	}
 	bam_destroy1(rec);
 	hts_itr_destroy(iter);
+
+	// Erase noise
+	for(uint32_t i = 0; i < hdr->target_len[refIndex]; ++i) {
+	  if (left[i] < c.minSplit) left[i] = 0;
+	  else {
+	    std::cerr << hdr->target_name[refIndex] << ',' << i << ',' << left[i] << ",left" << std::endl;
+	  }
+	  if (right[i] < c.minSplit) right[i] = 0;
+	  else {
+	    std::cerr << hdr->target_name[refIndex] << ',' << i << ',' << right[i] << ",right" << std::endl;
+	  }
+	}
       }
     }
     
@@ -146,7 +161,9 @@ namespace ted
     boost::program_options::options_description generic("Generic options");
     generic.add_options()
       ("help,?", "show help message")
-      ("map-qual,q", boost::program_options::value<uint16_t>(&c.minMapQual)->default_value(1), "min. mapping quality")
+      ("qual,q", boost::program_options::value<uint16_t>(&c.minMapQual)->default_value(1), "min. mapping quality")
+      ("clip,c", boost::program_options::value<uint16_t>(&c.minClip)->default_value(25), "min. clipping length")
+      ("split,s", boost::program_options::value<uint16_t>(&c.minSplit)->default_value(3), "min. split-read support")
       ("genome,g", boost::program_options::value<boost::filesystem::path>(&c.genome), "genome fasta file")
       ("outfile,o", boost::program_options::value<boost::filesystem::path>(&c.outfile)->default_value("sv.bcf"), "SV BCF output file")
       ;
