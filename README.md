@@ -1,0 +1,2 @@
+# ted
+Templated insertion discovery
