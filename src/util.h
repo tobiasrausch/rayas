@@ -17,6 +17,16 @@
 namespace ted
 {
 
+  inline std::size_t
+  hash_string(const char *s) {
+    std::size_t h = 37;
+    while (*s) {
+      h = (h * 54059) ^ (s[0] * 76963);
+      s++;
+    }
+    return h;
+  }
+
 }
 
 #endif
