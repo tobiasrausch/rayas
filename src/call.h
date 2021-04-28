@@ -62,12 +62,10 @@ namespace rayas
     uint32_t refIndex;
     uint32_t start;
     uint32_t end;
-    uint32_t lsr;
-    uint32_t rsr;
-    uint32_t id;
-    float obsexp;
+    uint32_t cid;
+    float cn;
 
-    Segment(uint32_t const c, uint32_t const s, uint32_t const e, uint32_t const l, uint32_t const r, uint32_t const uid, float const oe) : refIndex(c), start(s), end(e), lsr(l), rsr(r), id(uid), obsexp(oe) {}
+    Segment(uint32_t const c, uint32_t const s, uint32_t const e, uint32_t const uid, float const cnval) : refIndex(c), start(s), end(e), cid(uid), cn(cnval) {}
   };
   
   template<typename TConfig, typename TVector, typename TChrReadPos>
@@ -168,6 +166,54 @@ namespace rayas
     return true;
   }
   
+
+  template<typename TReadSegment, typename TEdgeSupport>
+  inline void
+  computelinks(TReadSegment const& read, TEdgeSupport& es) {
+    std::size_t oldid = 0;
+    int32_t kleft = 0;
+    for(uint32_t k = 0; k < read.size(); ++k) {
+      if (read[k].first == oldid) {
+	for(int32_t walk = k - 1; walk >= kleft; --walk) {
+	  uint32_t id1 = read[k].second;
+	  uint32_t id2 = read[walk].second;
+	  if (id1 > id2) {
+	    uint32_t tmp = id1;
+	    id1 = id2;
+	    id2 = tmp;
+	  }
+	  if (es.find(std::make_pair(id1, id2)) == es.end()) es.insert(std::make_pair(std::make_pair(id1, id2), 1));
+	  else ++es[std::make_pair(id1, id2)];
+	}
+      } else {
+	// New split-read
+	oldid = read[k].first;
+	kleft = k;
+      }
+    }
+  }
+  
+  template<typename TConfig, typename TEdgeSupport, typename TSegments>
+  inline void
+  segconnect(TConfig const& c, TEdgeSupport& es, TSegments& sgm) {
+    // Segments are nodes, split-reads are edges
+    for(uint32_t id1 = 0; id1 < sgm.size(); ++id1) {
+      for(uint32_t id2 = id1 + 1; id2 < sgm.size(); ++id2) {
+	if (es.find(std::make_pair(id1, id2)) != es.end()) {
+	  if (es[std::make_pair(id1, id2)] >= c.minSplit) {
+	    // Vertices in different components?
+	    if (sgm[id1].cid != sgm[id2].cid) {
+	      for(uint32_t i = 0; i < sgm.size(); ++i) {
+		if (sgm[i].cid == sgm[id2].cid) sgm[i].cid = sgm[id1].cid;
+	      }
+	    }
+	  }
+	}
+      }
+    }
+  }
+  
+
   
   template<typename TConfig>
   inline int32_t
@@ -307,23 +353,21 @@ namespace rayas
 	    if ((segsize > c.minSegmentSize) && (segsize < c.maxSegmentSize)) {
 	      // New candidate segment
 	      lastRight = bestRight;
-	      uint32_t lsr = 0;
-	      uint32_t rsr = 0;
-	      for(uint32_t k = bestLeft; k <= bestRight; ++k) {
-		if (bpvec[k].left) lsr += bpvec[k].splits;
-		else rsr += bpvec[k].splits;
-	      }
 	      uint64_t tmrcov = 0;
 	      uint64_t ctrcov = 0;
 	      if (getcov(nrun, cov, bpvec[bestLeft].pos, bpvec[bestRight].pos, tmrcov)) {
 		if (getcov(nrun, ccov, bpvec[bestLeft].pos, bpvec[bestRight].pos, ctrcov)) {
 		  if (ctrcov > 0) {
-		    float obsexp = tmrcov / ctrcov;
-		    uint32_t lid = ++uidsgm;
-		    sgm.push_back(Segment(refIndex, bpvec[bestLeft].pos, bpvec[bestRight].pos, lsr, rsr, ++uidsgm, obsexp));
-		    for(uint32_t k = bpvec[bestLeft].pos; k <= bpvec[bestRight].pos; ++k) {
-		      // ToDo: Replace with interval tree !!!
-		      possegmentmap.insert(std::make_pair(k, lid)); 
+		    float obsratio = tmrcov / ctrcov;
+		    float obsexp = obsratio / expratio;
+		    if (obsexp > 1.5) {
+		      uint32_t lid = uidsgm;
+		      ++uidsgm;
+		      sgm.push_back(Segment(refIndex, bpvec[bestLeft].pos, bpvec[bestRight].pos, lid, obsexp * 2.0));  // Assumes diploid
+		      for(uint32_t k = bpvec[bestLeft].pos; k <= bpvec[bestRight].pos; ++k) {
+			// ToDo: Replace with interval tree !!!
+			possegmentmap.insert(std::make_pair(k, lid)); 
+		      }
 		    }
 		  }
 		}
@@ -344,23 +388,48 @@ namespace rayas
 	for(uint32_t i = 0; i < r2.size(); ++i) {
 	  if (possegmentmap.find(r2[i].second) != possegmentmap.end()) {
 	    // Keep track of seed and segment
-	    read1.push_back(std::make_pair(r2[i].first, possegmentmap[r2[i].second]));
+	    read2.push_back(std::make_pair(r2[i].first, possegmentmap[r2[i].second]));
 	  }
 	}
       }
     }
 
+    // Compute links
+    boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();	  
+    std::cout << '[' << boost::posix_time::to_simple_string(now) << "] " << "Computing segment links" << std::endl;
+    // Sort split-reads by read ID
+    std::sort(read1.begin(), read1.end());
+    std::sort(read2.begin(), read2.end());
+    // Edges
+    typedef std::pair<uint32_t, uint32_t> TEdge;
+    typedef std::map<TEdge, uint32_t> TEdgeSupport;
+    TEdgeSupport es;
+    computelinks(read1, es);
+    computelinks(read2, es);
+    
+    // Segment connections    
+    now = boost::posix_time::second_clock::local_time();	  
+    std::cout << '[' << boost::posix_time::to_simple_string(now) << "] " << "Computing connected components" << std::endl;
+    segconnect(c, es, sgm);
+
     // Output segments
+    std::vector<uint32_t> clustersup(sgm.size(), 0);
+    for(uint32_t i = 0; i < sgm.size(); ++i) ++clustersup[sgm[i].cid];
+    std::cerr << "chr\tstart\tend\tid\testcn\tclusterid\tedges" << std::endl;
     for(uint32_t i = 0; i < sgm.size(); ++i) {
-      std::cerr << sgm[i].id << '\t' << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << sgm[i].lsr << '\t' << sgm[i].rsr << '\t' << sgm[i].obsexp << std::endl;
+      // At least 2 segments are connected
+      if (clustersup[sgm[i].cid] > 1) {
+	std::cerr << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << i << '\t' << sgm[i].cn << '\t' << sgm[i].cid << '\t';
+	for(uint32_t id2 = i; id2 < sgm.size(); ++id2) {
+	  if (es.find(std::make_pair(i, id2)) != es.end()) std::cerr << '(' << i << ',' << id2 << ")=" << es[std::make_pair(i, id2)] << ',';
+	}
+	std::cerr << std::endl;
+      }
     }
-    // Output all reads
-    for(uint32_t i = 0; i < read1.size(); ++i) {
-      std::cerr << read1[i].first << '\t' << read1[i].second << std::endl;
-    }
-    for(uint32_t i = 0; i < read2.size(); ++i) {
-      std::cerr << read2[i].first << '\t' << read2[i].second << std::endl;
-    }
+    
+    // Output split-reads
+    //for(uint32_t i = 0; i < read1.size(); ++i) std::cerr << read1[i].first << '\t' << read1[i].second << std::endl;
+    //for(uint32_t i = 0; i < read2.size(); ++i) std::cerr << read2[i].first << '\t' << read2[i].second << std::endl;
     
     // Clean-up
     bam_hdr_destroy(hdr);
@@ -375,7 +444,7 @@ namespace rayas
 #endif
     
     // End
-    boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();
+    now = boost::posix_time::second_clock::local_time();
     std::cout << '[' << boost::posix_time::to_simple_string(now) << "] Done." << std::endl;
     return 0;
   }
