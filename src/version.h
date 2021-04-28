@@ -1,22 +1,22 @@
 #ifndef VERSION_H
 #define VERSION_H
 
-namespace ted
+namespace rayas
 {
 
 
-  std::string tedVersionNumber = "0.0.3";
+  std::string rayasVersionNumber = "0.0.3";
 
   inline 
     void printTitle(std::string const& title) 
     {
       std::cout << "**********************************************************************" << std::endl;
-      std::cout << "Program: Ted" << std::endl;
+      std::cout << "Program: Rayas" << std::endl;
       std::cout << "This is free software, and you are welcome to redistribute it under" << std::endl;
       std::cout << "certain conditions (BSD License); for license details use '-l'." << std::endl;
       std::cout << "This program comes with ABSOLUTELY NO WARRANTY; for details use '-w'." << std::endl;
       std::cout <<  std::endl;
-      std::cout <<  title << " (Version: " << tedVersionNumber << ")" << std::endl;
+      std::cout <<  title << " (Version: " << rayasVersionNumber << ")" << std::endl;
       std::cout << "Contact: Tobias Rausch (rausch@embl.de)" << std::endl;
       std::cout << "**********************************************************************" << std::endl;
       std::cout << std::endl;
@@ -36,7 +36,7 @@ namespace ted
     
   inline void
   bsd() {
-    std::cout << "Copyright (c) 2019 Ted Project Authors (see AUTHORS file for details)." << std::endl;
+    std::cout << "Copyright (c) 2019 Rayas Project Authors (see AUTHORS file for details)." << std::endl;
     std::cout << "All rights reserved." << std::endl;
     std::cout << std::endl;
     std::cout << "Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:" << std::endl;

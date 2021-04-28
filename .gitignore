@@ -1,7 +1,7 @@
 *~
 .htslib
 bin/
-src/ted
+src/rayas
 
 # Prerequisites
 *.d

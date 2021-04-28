@@ -23,21 +23,52 @@
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics.hpp>
 
-namespace ted
+namespace rayas
 {
 
   struct CallConfig {
     uint16_t minMapQual;
     uint16_t minClip;
     uint16_t minSplit;
+    uint32_t minSegmentSize;
+    uint32_t maxSegmentSize;
+    float contam;
     boost::filesystem::path genome;
     boost::filesystem::path outfile;
     boost::filesystem::path tumor;
     boost::filesystem::path control;
   };
 
+  struct Breakpoint {
+    bool left;
+    uint32_t pos;
+    uint32_t splits;
+    float obsexp;
+
+    Breakpoint(bool const l, uint32_t const p, uint32_t const s, float oe) : left(l), pos(p), splits(s), obsexp(oe) {}
+  };
+ 
+
+  template<typename TBreakpoint>
+  struct SortBreakpoints : public std::binary_function<TBreakpoint, TBreakpoint, bool>
+  {
+    inline bool operator()(TBreakpoint const& bp1, TBreakpoint const& bp2) {
+      return ((bp1.pos < bp2.pos) || ((bp1.pos == bp2.pos) && (bp1.left)));
+    }
+  };
 
 
+  struct Segment {
+    uint32_t refIndex;
+    uint32_t start;
+    uint32_t end;
+    uint32_t lsr;
+    uint32_t rsr;
+    float obsexp;
+
+    Segment(uint32_t const c, uint32_t const s, uint32_t const e, uint32_t const l, uint32_t const r, float const oe) : refIndex(c), start(s), end(e), lsr(l), rsr(r), obsexp(oe) {}
+  };
+  
   template<typename TConfig, typename TVector>
   inline bool
   parseChr(TConfig& c, samFile* samfile, hts_idx_t* idx, bam_hdr_t* hdr, int32_t refIndex, std::string const& str, TVector& left, TVector& right, TVector& cov) {
@@ -123,9 +154,9 @@ namespace ted
     avgcov = boost::accumulators::mean(acc);
   }
 
-  template<typename TBitSet, typename TVector>
+  template<typename TBitSet, typename TVector, typename TValue>
   inline bool
-  getcov(TBitSet const& nrun, TVector const& cov, uint32_t const start, uint32_t const end, uint32_t& lcov) {
+  getcov(TBitSet const& nrun, TVector const& cov, uint32_t const start, uint32_t const end, TValue& lcov) {
     lcov = 0;
     for(uint32_t k = start; k < end; ++k) {
       if (nrun[k]) return false;
@@ -140,7 +171,7 @@ namespace ted
   runCall(TConfig& c) {
     
 #ifdef PROFILE
-    ProfilerStart("ted.prof");
+    ProfilerStart("rayas.prof");
 #endif
 
     // Open file handles
@@ -155,6 +186,8 @@ namespace ted
     char* seq = NULL;
     
     // Parse genome, process chromosome by chromosome
+    typedef std::vector<Segment> TSegments;
+    TSegments sgm;
     for(int32_t refIndex=0; refIndex < (int32_t) hdr->n_targets; ++refIndex) {
       if (hdr->target_len[refIndex] > 1000000) {
 	boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();	  
@@ -182,10 +215,10 @@ namespace ted
 	if ((seq[i] == 'n') || (seq[i] == 'N')) nrun[i] = 1;
       }
       if (seq != NULL) free(seq);
-      
-      // Get background coverage
-      uint32_t seedwin = 200;
+
+      uint32_t seedwin = 2 * c.minSegmentSize;
       if (2 * seedwin < hdr->target_len[refIndex]) {
+	// Get background coverage
 	uint32_t sdcov = 0;
 	uint32_t avgcov = 0;
 	covParams(nrun, cov, seedwin, avgcov, sdcov);
@@ -194,21 +227,100 @@ namespace ted
 	uint32_t cavgcov = 0;
 	covParams(nrun, ccov, seedwin, cavgcov, csdcov);
 	//std::cout << "Control avg. coverage and SD coverage " << cavgcov << "," << csdcov << std::endl;
+	float expratio = avgcov / cavgcov;
 
-	// Erase noise
+	// Identify candidate breakpoints
+	typedef std::vector<Breakpoint> TBreakpointVector;
+	TBreakpointVector bpvec;
 	for(uint32_t i = seedwin; i < hdr->target_len[refIndex] - seedwin; ++i) {
+	  // Left soft-clips
 	  if (left[i] >= c.minSplit) {
-	    uint32_t lcov = 0;
-	    if (!getcov(nrun, cov, i, i+seedwin, lcov)) continue;
-	    if (lcov > avgcov + 3 * sdcov) std::cerr << hdr->target_name[refIndex] << ',' << i << ',' << left[i] << ",left," << lcov/seedwin << std::endl;
+	    uint32_t threshold = (uint32_t) (c.contam * left[i]);
+	    if (cleft[i] <= threshold) {
+	      uint32_t lcov = 0;
+	      uint32_t rcov = 0;
+	      if (!getcov(nrun, cov, i - seedwin, i, lcov)) continue;
+	      if (!getcov(nrun, cov, i, i+seedwin, rcov)) continue;
+	      if ((lcov * 1.5 < rcov) && (rcov > avgcov + 3 * sdcov)) {
+		uint32_t controlcov = 0;
+		if (!getcov(nrun, ccov, i, i+seedwin, controlcov)) continue;
+		if ((controlcov > 0) && (cavgcov > 0)) {
+		  float obsratio = rcov / controlcov;
+		  if (obsratio / expratio > 1.5) bpvec.push_back(Breakpoint(true, i, left[i], obsratio / expratio));
+		}
+	      }
+	    }
 	  }
+	  // Right soft-clips
 	  if (right[i] >= c.minSplit) {
-	    uint32_t rcov = 0;
-	    if (!getcov(nrun, cov, i - seedwin, i, rcov)) continue;
-	    if (rcov > avgcov + 3 * sdcov) std::cerr << hdr->target_name[refIndex] << ',' << i << ',' << right[i] << ",right," << rcov/seedwin << std::endl;
+	    uint32_t threshold = (uint32_t) (c.contam * right[i]);
+	    if (cright[i] <= threshold) {
+	      uint32_t lcov = 0;
+	      uint32_t rcov = 0;
+	      if (!getcov(nrun, cov, i - seedwin, i, lcov)) continue;
+	      if (!getcov(nrun, cov, i, i+seedwin, rcov)) continue;
+	      if ((rcov * 1.5 < lcov) && (lcov > avgcov + 3 * sdcov)) {
+		uint32_t controlcov = 0;
+		if (!getcov(nrun, ccov, i - seedwin, i, controlcov)) continue;
+		if ((controlcov > 0) && (cavgcov > 0)) {
+		  float obsratio = lcov / controlcov;
+		  if (obsratio / expratio > 1.5) bpvec.push_back(Breakpoint(false, i, right[i], obsratio / expratio));
+		}
+	      }
+	    }
+	  }
+	}
+
+	// Merge left and right breakpoints into candidate regions
+	std::sort(bpvec.begin(), bpvec.end(), SortBreakpoints<Breakpoint>());
+	uint32_t lastRight = 0;
+	for(uint32_t i = 0; i < bpvec.size() - 1; ++i) {
+	  if (i < lastRight) continue;
+	  if ((bpvec[i].left) && (!bpvec[i+1].left) && (bpvec[i+1].pos - bpvec[i].pos < c.maxSegmentSize)) {
+	    // Split-read switchpoint (extend if possible)
+	    uint32_t bestLeft = i;
+	    for(int32_t k = i - 1; k >= 0; --k) {
+	      if (!bpvec[k].left) break;
+	      if (bpvec[i].pos - bpvec[k].pos > c.maxSegmentSize) break;
+	      if (bpvec[k].obsexp / bpvec[i].obsexp < 0.5) break;
+	      bestLeft = k;
+	    }
+	    uint32_t bestRight = i + 1;
+	    for(uint32_t k = i + 2; k < bpvec.size(); ++k) {
+	      if (bpvec[k].left) break;
+	      if (bpvec[k].pos - bpvec[i+1].pos > c.maxSegmentSize) break;
+	      if (bpvec[k].obsexp / bpvec[i+1].obsexp < 0.5) break;
+	      bestRight = k;
+	    }
+	    uint32_t segsize = bpvec[bestRight].pos - bpvec[bestLeft].pos;
+	    if ((segsize > c.minSegmentSize) && (segsize < c.maxSegmentSize)) {
+	      // New candidate segment
+	      lastRight = bestRight;
+	      uint32_t lsr = 0;
+	      uint32_t rsr = 0;
+	      for(uint32_t k = bestLeft; k <= bestRight; ++k) {
+		if (bpvec[k].left) lsr += bpvec[k].splits;
+		else rsr += bpvec[k].splits;
+	      }
+	      uint64_t tmrcov = 0;
+	      uint64_t ctrcov = 0;
+	      if (getcov(nrun, cov, bpvec[bestLeft].pos, bpvec[bestRight].pos, tmrcov)) {
+		if (getcov(nrun, ccov, bpvec[bestLeft].pos, bpvec[bestRight].pos, ctrcov)) {
+		  if (ctrcov > 0) {
+		    float obsexp = tmrcov / ctrcov;
+		    sgm.push_back(Segment(refIndex, bpvec[bestLeft].pos, bpvec[bestRight].pos, lsr, rsr, obsexp));
+		  }
+		}
+	      }
+	    }
 	  }
 	}
       }
+    }
+
+    // Output segments
+    for(uint32_t i = 0; i < sgm.size(); ++i) {
+      std::cerr << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << sgm[i].lsr << '\t' << sgm[i].rsr << '\t' << sgm[i].obsexp << std::endl;
     }
     
     // Clean-up
@@ -241,6 +353,9 @@ namespace ted
       ("qual,q", boost::program_options::value<uint16_t>(&c.minMapQual)->default_value(1), "min. mapping quality")
       ("clip,c", boost::program_options::value<uint16_t>(&c.minClip)->default_value(25), "min. clipping length")
       ("split,s", boost::program_options::value<uint16_t>(&c.minSplit)->default_value(3), "min. split-read support")
+      ("minsize,i", boost::program_options::value<uint32_t>(&c.minSegmentSize)->default_value(100), "min. segment size")
+      ("maxsize,j", boost::program_options::value<uint32_t>(&c.maxSegmentSize)->default_value(10000), "max. segment size")
+      ("contam,n", boost::program_options::value<float>(&c.contam)->default_value(0), "max. fractional tumor-in-normal contamination")
       ("genome,g", boost::program_options::value<boost::filesystem::path>(&c.genome), "genome fasta file")
       ("matched,m", boost::program_options::value<boost::filesystem::path>(&c.control), "matched control BAM")
       ("outfile,o", boost::program_options::value<boost::filesystem::path>(&c.outfile)->default_value("sv.bcf"), "SV BCF output file")
@@ -264,7 +379,7 @@ namespace ted
     
     // Check command line arguments
     if ((vm.count("help")) || (!vm.count("input-file")) || (!vm.count("genome")) || (!vm.count("matched"))) {
-      std::cout << "Usage: ted " << argv[0] << " [OPTIONS] -g <ref.fa> -m <control.bam> <tumor.bam>" << std::endl;
+      std::cout << "Usage: rayas " << argv[0] << " [OPTIONS] -g <ref.fa> -m <control.bam> <tumor.bam>" << std::endl;
       std::cout << visible_options << "\n";
       return -1;
     }
@@ -272,7 +387,7 @@ namespace ted
     // Show cmd
     boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();
     std::cout << '[' << boost::posix_time::to_simple_string(now) << "] ";
-    std::cout << "ted ";
+    std::cout << "rayas ";
     for(int i=0; i<argc; ++i) { std::cout << argv[i] << ' '; }
     std::cout << std::endl;
     

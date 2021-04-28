@@ -14,7 +14,7 @@
 #include <htslib/faidx.h>
 #include <htslib/vcf.h>
 
-namespace ted
+namespace rayas
 {
 
   inline uint32_t sequenceLength(bam1_t const* rec) {
