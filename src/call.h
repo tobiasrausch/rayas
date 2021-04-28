@@ -64,14 +64,15 @@ namespace rayas
     uint32_t end;
     uint32_t lsr;
     uint32_t rsr;
+    uint32_t id;
     float obsexp;
 
-    Segment(uint32_t const c, uint32_t const s, uint32_t const e, uint32_t const l, uint32_t const r, float const oe) : refIndex(c), start(s), end(e), lsr(l), rsr(r), obsexp(oe) {}
+    Segment(uint32_t const c, uint32_t const s, uint32_t const e, uint32_t const l, uint32_t const r, uint32_t const uid, float const oe) : refIndex(c), start(s), end(e), lsr(l), rsr(r), id(uid), obsexp(oe) {}
   };
   
-  template<typename TConfig, typename TVector>
+  template<typename TConfig, typename TVector, typename TChrReadPos>
   inline bool
-  parseChr(TConfig& c, samFile* samfile, hts_idx_t* idx, bam_hdr_t* hdr, int32_t refIndex, std::string const& str, TVector& left, TVector& right, TVector& cov) {
+  parseChr(TConfig& c, samFile* samfile, hts_idx_t* idx, bam_hdr_t* hdr, int32_t refIndex, std::string const& str, TVector& left, TVector& right, TVector& cov, TChrReadPos& read1, TChrReadPos& read2, bool const trackreads) {
     typedef typename TVector::value_type TValue;
     // Any data?
     bool nodata = true;
@@ -117,8 +118,10 @@ namespace rayas
 	    } else {
 	      if (right[rp] < maxval) right[rp] += 1;
 	    }
-	    //if (rec->core.flag & BAM_FREAD1) read1.push_back(std::make_pair(seed, rp));
-	    //else read2.push_back(std::make_pair(seed, rp));
+	    if (trackreads) {
+	      if (rec->core.flag & BAM_FREAD1) read1.push_back(std::make_pair(seed, rp));
+	      else read2.push_back(std::make_pair(seed, rp));
+	    }
 	  }
 	  sp += bam_cigar_oplen(cigar[i]);
 	} else if (bam_cigar_op(cigar[i]) == BAM_CREF_SKIP) {
@@ -188,6 +191,11 @@ namespace rayas
     // Parse genome, process chromosome by chromosome
     typedef std::vector<Segment> TSegments;
     TSegments sgm;
+    uint32_t uidsgm = 0;
+    typedef std::pair<std::size_t, uint32_t> TReadPos;
+    typedef std::vector<TReadPos> TChrReadPos;
+    TChrReadPos read1;
+    TChrReadPos read2;
     for(int32_t refIndex=0; refIndex < (int32_t) hdr->n_targets; ++refIndex) {
       if (hdr->target_len[refIndex] > 1000000) {
 	boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();	  
@@ -198,13 +206,15 @@ namespace rayas
       std::vector<uint16_t> left(hdr->target_len[refIndex], 0);
       std::vector<uint16_t> right(hdr->target_len[refIndex], 0);
       std::vector<uint16_t> cov(hdr->target_len[refIndex], 0);
-      if (!parseChr(c, samfile, idx, hdr, refIndex, c.tumor.string(), left, right, cov)) continue;
+      TChrReadPos r1;
+      TChrReadPos r2;
+      if (!parseChr(c, samfile, idx, hdr, refIndex, c.tumor.string(), left, right, cov, r1, r2, true)) continue;
       
       // Control
       std::vector<uint16_t> cleft(hdr->target_len[refIndex], 0);
       std::vector<uint16_t> cright(hdr->target_len[refIndex], 0);
       std::vector<uint16_t> ccov(hdr->target_len[refIndex], 0);
-      if (!parseChr(c, cfile, cidx, hdr, refIndex, c.control.string(), cleft, cright, ccov)) continue;
+      if (!parseChr(c, cfile, cidx, hdr, refIndex, c.control.string(), cleft, cright, ccov, r1, r2, false)) continue;
 
       // Load sequence
       int32_t seqlen = -1;
@@ -217,6 +227,7 @@ namespace rayas
       if (seq != NULL) free(seq);
 
       uint32_t seedwin = 2 * c.minSegmentSize;
+      std::map<uint32_t, uint32_t> possegmentmap;
       if (2 * seedwin < hdr->target_len[refIndex]) {
 	// Get background coverage
 	uint32_t sdcov = 0;
@@ -308,7 +319,12 @@ namespace rayas
 		if (getcov(nrun, ccov, bpvec[bestLeft].pos, bpvec[bestRight].pos, ctrcov)) {
 		  if (ctrcov > 0) {
 		    float obsexp = tmrcov / ctrcov;
-		    sgm.push_back(Segment(refIndex, bpvec[bestLeft].pos, bpvec[bestRight].pos, lsr, rsr, obsexp));
+		    uint32_t lid = ++uidsgm;
+		    sgm.push_back(Segment(refIndex, bpvec[bestLeft].pos, bpvec[bestRight].pos, lsr, rsr, ++uidsgm, obsexp));
+		    for(uint32_t k = bpvec[bestLeft].pos; k <= bpvec[bestRight].pos; ++k) {
+		      // ToDo: Replace with interval tree !!!
+		      possegmentmap.insert(std::make_pair(k, lid)); 
+		    }
 		  }
 		}
 	      }
@@ -316,11 +332,34 @@ namespace rayas
 	  }
 	}
       }
+
+      // Carry-over all split-reads
+      if (!possegmentmap.empty()) {
+	for(uint32_t i = 0; i < r1.size(); ++i) {
+	  if (possegmentmap.find(r1[i].second) != possegmentmap.end()) {
+	    // Keep track of seed and segment
+	    read1.push_back(std::make_pair(r1[i].first, possegmentmap[r1[i].second]));
+	  }
+	}
+	for(uint32_t i = 0; i < r2.size(); ++i) {
+	  if (possegmentmap.find(r2[i].second) != possegmentmap.end()) {
+	    // Keep track of seed and segment
+	    read1.push_back(std::make_pair(r2[i].first, possegmentmap[r2[i].second]));
+	  }
+	}
+      }
     }
 
     // Output segments
     for(uint32_t i = 0; i < sgm.size(); ++i) {
-      std::cerr << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << sgm[i].lsr << '\t' << sgm[i].rsr << '\t' << sgm[i].obsexp << std::endl;
+      std::cerr << sgm[i].id << '\t' << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << sgm[i].lsr << '\t' << sgm[i].rsr << '\t' << sgm[i].obsexp << std::endl;
+    }
+    // Output all reads
+    for(uint32_t i = 0; i < read1.size(); ++i) {
+      std::cerr << read1[i].first << '\t' << read1[i].second << std::endl;
+    }
+    for(uint32_t i = 0; i < read2.size(); ++i) {
+      std::cerr << read2[i].first << '\t' << read2[i].second << std::endl;
     }
     
     // Clean-up
@@ -347,7 +386,7 @@ namespace rayas
     CallConfig c;
     
     // Parameter
-    boost::program_options::options_description generic("Generic options");
+    boost::program_options::options_description generic("Options");
     generic.add_options()
       ("help,?", "show help message")
       ("qual,q", boost::program_options::value<uint16_t>(&c.minMapQual)->default_value(1), "min. mapping quality")
