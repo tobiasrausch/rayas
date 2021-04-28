@@ -138,7 +138,8 @@ namespace rayas
   template<typename TBitSet, typename TVector>
   inline void
   covParams(TBitSet const& nrun, TVector const& cov, uint32_t const seedwin, uint32_t& avgcov, uint32_t& sdcov) {
-    boost::accumulators::accumulator_set<double, boost::accumulators::features<boost::accumulators::tag::mean, boost::accumulators::tag::variance> > acc;
+    // Collect coverage values
+    std::vector<uint32_t> vcov;
     for(uint32_t i = seedwin; i < nrun.size(); i = i + seedwin) {
       uint32_t lcov = 0;
       bool ncontent = false;
@@ -149,8 +150,18 @@ namespace rayas
 	}
 	lcov += cov[k];
       }
-      if (!ncontent) acc(lcov);
+      if (!ncontent) vcov.push_back(lcov);
     }
+    // Drop lowest and highest 25%
+    uint32_t ist = 0;
+    uint32_t ien = vcov.size();
+    if (ien > 1000) {
+      ist = (uint32_t) (0.25 * vcov.size());
+      ien = (uint32_t) (0.75 * vcov.size());
+      std::sort(vcov.begin(), vcov.end());
+    }
+    boost::accumulators::accumulator_set<double, boost::accumulators::features<boost::accumulators::tag::mean, boost::accumulators::tag::variance> > acc;
+    for(uint32_t i = ist; i < ien; ++i) acc(vcov[i]);
     sdcov = sqrt(boost::accumulators::variance(acc));
     avgcov = boost::accumulators::mean(acc);
   }
@@ -279,12 +290,12 @@ namespace rayas
 	uint32_t sdcov = 0;
 	uint32_t avgcov = 0;
 	covParams(nrun, cov, seedwin, avgcov, sdcov);
-	//std::cout << "Tumor avg. coverage and SD coverage " << avgcov << "," << sdcov << std::endl;
+	std::cout << "Tumor avg. coverage and SD coverage " << avgcov << "," << sdcov << std::endl;
 	uint32_t csdcov = 0;
 	uint32_t cavgcov = 0;
 	covParams(nrun, ccov, seedwin, cavgcov, csdcov);
-	//std::cout << "Control avg. coverage and SD coverage " << cavgcov << "," << csdcov << std::endl;
-	float expratio = avgcov / cavgcov;
+	std::cout << "Control avg. coverage and SD coverage " << cavgcov << "," << csdcov << std::endl;
+	float expratio = (float) (avgcov) / (float) (cavgcov);
 
 	// Identify candidate breakpoints
 	typedef std::vector<Breakpoint> TBreakpointVector;
@@ -301,7 +312,7 @@ namespace rayas
 	      if ((lcov * 1.5 < rcov) && (rcov > avgcov + 3 * sdcov)) {
 		uint32_t controlcov = 0;
 		if (!getcov(nrun, ccov, i, i+seedwin, controlcov)) continue;
-		if ((controlcov > 0) && (cavgcov > 0)) {
+		if (controlcov > 0) {
 		  float obsratio = rcov / controlcov;
 		  if (obsratio / expratio > 1.5) bpvec.push_back(Breakpoint(true, i, left[i], obsratio / expratio));
 		}
@@ -319,7 +330,7 @@ namespace rayas
 	      if ((rcov * 1.5 < lcov) && (lcov > avgcov + 3 * sdcov)) {
 		uint32_t controlcov = 0;
 		if (!getcov(nrun, ccov, i - seedwin, i, controlcov)) continue;
-		if ((controlcov > 0) && (cavgcov > 0)) {
+		if (controlcov > 0) {
 		  float obsratio = lcov / controlcov;
 		  if (obsratio / expratio > 1.5) bpvec.push_back(Breakpoint(false, i, right[i], obsratio / expratio));
 		}
@@ -327,8 +338,9 @@ namespace rayas
 	    }
 	  }
 	}
+	if (bpvec.empty()) continue;
 
-	// Merge left and right breakpoints into candidate regions
+	// Merge left and right breakpoints into candidate regions	
 	std::sort(bpvec.begin(), bpvec.end(), SortBreakpoints<Breakpoint>());
 	uint32_t lastRight = 0;
 	for(uint32_t i = 0; i < bpvec.size() - 1; ++i) {
@@ -358,7 +370,7 @@ namespace rayas
 	      if (getcov(nrun, cov, bpvec[bestLeft].pos, bpvec[bestRight].pos, tmrcov)) {
 		if (getcov(nrun, ccov, bpvec[bestLeft].pos, bpvec[bestRight].pos, ctrcov)) {
 		  if (ctrcov > 0) {
-		    float obsratio = tmrcov / ctrcov;
+		    float obsratio = (float) (tmrcov) / (float) (ctrcov);
 		    float obsexp = obsratio / expratio;
 		    if (obsexp > 1.5) {
 		      uint32_t lid = uidsgm;
@@ -415,7 +427,7 @@ namespace rayas
     // Output segments
     std::vector<uint32_t> clustersup(sgm.size(), 0);
     for(uint32_t i = 0; i < sgm.size(); ++i) ++clustersup[sgm[i].cid];
-    std::cerr << "chr\tstart\tend\tid\testcn\tclusterid\tedges" << std::endl;
+    std::cerr << "chr\tstart\tend\tnodeid\testcn\tclusterid\tedges" << std::endl;
     for(uint32_t i = 0; i < sgm.size(); ++i) {
       // At least 2 segments are connected
       if (clustersup[sgm[i].cid] > 1) {
