@@ -32,6 +32,7 @@ namespace rayas
     uint16_t minSplit;
     uint32_t minSegmentSize;
     uint32_t maxSegmentSize;
+    uint32_t minChrLen;
     float contam;
     boost::filesystem::path genome;
     boost::filesystem::path outfile;
@@ -67,21 +68,24 @@ namespace rayas
 
     Segment(uint32_t const c, uint32_t const s, uint32_t const e, uint32_t const uid, float const cnval) : refIndex(c), start(s), end(e), cid(uid), cn(cnval) {}
   };
-  
-  template<typename TConfig, typename TVector, typename TChrReadPos>
+
+
   inline bool
-  parseChr(TConfig& c, samFile* samfile, hts_idx_t* idx, bam_hdr_t* hdr, int32_t refIndex, std::string const& str, TVector& left, TVector& right, TVector& cov, TChrReadPos& read1, TChrReadPos& read2, bool const trackreads) {
-    typedef typename TVector::value_type TValue;
+  mappedReads(hts_idx_t* idx, int32_t refIndex, std::string const& str) {
     // Any data?
-    bool nodata = true;
     std::string suffix("cram");
-    if ((str.size() >= suffix.size()) && (str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0)) nodata = false;
+    if ((str.size() >= suffix.size()) && (str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0)) return true;
     uint64_t mapped = 0;
     uint64_t unmapped = 0;
     hts_idx_get_stat(idx, refIndex, &mapped, &unmapped);
-    if (mapped) nodata = false;
-    if (nodata) return false;
-
+    if (mapped) return true;
+    else return false;
+  }
+  
+  template<typename TConfig, typename TVector, typename TChrReadPos>
+  inline void
+  parseChr(TConfig& c, samFile* samfile, hts_idx_t* idx, bam_hdr_t* hdr, int32_t refIndex, TVector& left, TVector& right, TVector& cov, TChrReadPos& read1, TChrReadPos& read2, bool const trackreads) {
+    typedef typename TVector::value_type TValue;
     // Max value
     TValue maxval = std::numeric_limits<TValue>::max();
 
@@ -131,7 +135,6 @@ namespace rayas
     }
     bam_destroy1(rec);
     hts_itr_destroy(iter);
-    return true;
   }
 
 
@@ -254,24 +257,28 @@ namespace rayas
     TChrReadPos read1;
     TChrReadPos read2;
     for(int32_t refIndex=0; refIndex < (int32_t) hdr->n_targets; ++refIndex) {
-      if (hdr->target_len[refIndex] > 1000000) {
+      // Any data?
+      if ((!mappedReads(idx, refIndex, c.tumor.string())) || (!mappedReads(idx, refIndex, c.control.string()))) continue;
+
+      // Large enough chromosome?
+      if (hdr->target_len[refIndex] > c.minChrLen) {
 	boost::posix_time::ptime now = boost::posix_time::second_clock::local_time();	  
 	std::cout << '[' << boost::posix_time::to_simple_string(now) << "] " << "Parsing " << hdr->target_name[refIndex] << std::endl;
-      }
-      
+      } else continue;
+
       // Tumor
       std::vector<uint16_t> left(hdr->target_len[refIndex], 0);
       std::vector<uint16_t> right(hdr->target_len[refIndex], 0);
       std::vector<uint16_t> cov(hdr->target_len[refIndex], 0);
       TChrReadPos r1;
       TChrReadPos r2;
-      if (!parseChr(c, samfile, idx, hdr, refIndex, c.tumor.string(), left, right, cov, r1, r2, true)) continue;
+      parseChr(c, samfile, idx, hdr, refIndex, left, right, cov, r1, r2, true);
       
       // Control
       std::vector<uint16_t> cleft(hdr->target_len[refIndex], 0);
       std::vector<uint16_t> cright(hdr->target_len[refIndex], 0);
       std::vector<uint16_t> ccov(hdr->target_len[refIndex], 0);
-      if (!parseChr(c, cfile, cidx, hdr, refIndex, c.control.string(), cleft, cright, ccov, r1, r2, false)) continue;
+      parseChr(c, cfile, cidx, hdr, refIndex, cleft, cright, ccov, r1, r2, false);
 
       // Load sequence
       int32_t seqlen = -1;
@@ -338,47 +345,48 @@ namespace rayas
 	    }
 	  }
 	}
-	if (bpvec.empty()) continue;
-
-	// Merge left and right breakpoints into candidate regions	
-	std::sort(bpvec.begin(), bpvec.end(), SortBreakpoints<Breakpoint>());
-	uint32_t lastRight = 0;
-	for(uint32_t i = 0; i < bpvec.size() - 1; ++i) {
-	  if (i < lastRight) continue;
-	  if ((bpvec[i].left) && (!bpvec[i+1].left) && (bpvec[i+1].pos - bpvec[i].pos < c.maxSegmentSize)) {
-	    // Split-read switchpoint (extend if possible)
-	    uint32_t bestLeft = i;
-	    for(int32_t k = i - 1; k >= 0; --k) {
-	      if (!bpvec[k].left) break;
-	      if (bpvec[i].pos - bpvec[k].pos > c.maxSegmentSize) break;
-	      if (bpvec[k].obsexp / bpvec[i].obsexp < 0.5) break;
-	      bestLeft = k;
-	    }
-	    uint32_t bestRight = i + 1;
-	    for(uint32_t k = i + 2; k < bpvec.size(); ++k) {
-	      if (bpvec[k].left) break;
-	      if (bpvec[k].pos - bpvec[i+1].pos > c.maxSegmentSize) break;
-	      if (bpvec[k].obsexp / bpvec[i+1].obsexp < 0.5) break;
-	      bestRight = k;
-	    }
-	    uint32_t segsize = bpvec[bestRight].pos - bpvec[bestLeft].pos;
-	    if ((segsize > c.minSegmentSize) && (segsize < c.maxSegmentSize)) {
-	      // New candidate segment
-	      lastRight = bestRight;
-	      uint64_t tmrcov = 0;
-	      uint64_t ctrcov = 0;
-	      if (getcov(nrun, cov, bpvec[bestLeft].pos, bpvec[bestRight].pos, tmrcov)) {
-		if (getcov(nrun, ccov, bpvec[bestLeft].pos, bpvec[bestRight].pos, ctrcov)) {
-		  if (ctrcov > 0) {
-		    float obsratio = (float) (tmrcov) / (float) (ctrcov);
-		    float obsexp = obsratio / expratio;
-		    if (obsexp > 1.5) {
-		      uint32_t lid = uidsgm;
-		      ++uidsgm;
-		      sgm.push_back(Segment(refIndex, bpvec[bestLeft].pos, bpvec[bestRight].pos, lid, obsexp * 2.0));  // Assumes diploid
-		      for(uint32_t k = bpvec[bestLeft].pos; k <= bpvec[bestRight].pos; ++k) {
-			// ToDo: Replace with interval tree !!!
-			possegmentmap.insert(std::make_pair(k, lid)); 
+	
+	// Merge left and right breakpoints into candidate regions
+	if (bpvec.size()) {
+	  std::sort(bpvec.begin(), bpvec.end(), SortBreakpoints<Breakpoint>());
+	  uint32_t lastRight = 0;
+	  for(uint32_t i = 0; i < bpvec.size() - 1; ++i) {
+	    if (i < lastRight) continue;
+	    if ((bpvec[i].left) && (!bpvec[i+1].left) && (bpvec[i+1].pos - bpvec[i].pos < c.maxSegmentSize)) {
+	      // Split-read switchpoint (extend if possible)
+	      uint32_t bestLeft = i;
+	      for(int32_t k = i - 1; k >= 0; --k) {
+		if (!bpvec[k].left) break;
+		if (bpvec[i].pos - bpvec[k].pos > c.maxSegmentSize) break;
+		if (bpvec[k].obsexp / bpvec[i].obsexp < 0.5) break;
+		bestLeft = k;
+	      }
+	      uint32_t bestRight = i + 1;
+	      for(uint32_t k = i + 2; k < bpvec.size(); ++k) {
+		if (bpvec[k].left) break;
+		if (bpvec[k].pos - bpvec[i+1].pos > c.maxSegmentSize) break;
+		if (bpvec[k].obsexp / bpvec[i+1].obsexp < 0.5) break;
+		bestRight = k;
+	      }
+	      uint32_t segsize = bpvec[bestRight].pos - bpvec[bestLeft].pos;
+	      if ((segsize > c.minSegmentSize) && (segsize < c.maxSegmentSize)) {
+		// New candidate segment
+		lastRight = bestRight;
+		uint64_t tmrcov = 0;
+		if (getcov(nrun, cov, bpvec[bestLeft].pos, bpvec[bestRight].pos, tmrcov)) {
+		  uint64_t ctrcov = 0;
+		  if (getcov(nrun, ccov, bpvec[bestLeft].pos, bpvec[bestRight].pos, ctrcov)) {
+		    if (ctrcov > 0) {
+		      float obsratio = (float) (tmrcov) / (float) (ctrcov);
+		      float obsexp = obsratio / expratio;
+		      if (obsexp > 1.5) {
+			uint32_t lid = uidsgm;
+			++uidsgm;
+			sgm.push_back(Segment(refIndex, bpvec[bestLeft].pos, bpvec[bestRight].pos, lid, obsexp * 2.0));  // Assumes diploid
+			for(uint32_t k = bpvec[bestLeft].pos; k <= bpvec[bestRight].pos; ++k) {
+			  // ToDo: Replace with interval tree !!!
+			  possegmentmap.insert(std::make_pair(k, lid)); 
+			}
 		      }
 		    }
 		  }
@@ -388,7 +396,6 @@ namespace rayas
 	  }
 	}
       }
-
       // Carry-over all split-reads
       if (!possegmentmap.empty()) {
 	for(uint32_t i = 0; i < r1.size(); ++i) {
@@ -424,13 +431,29 @@ namespace rayas
     std::cout << '[' << boost::posix_time::to_simple_string(now) << "] " << "Computing connected components" << std::endl;
     segconnect(c, es, sgm);
 
+    // Filter singletons or clusters where all segments are nearby
+    std::vector<bool> confirmed(sgm.size(), false);
+    for(uint32_t i = 0; i < sgm.size(); ++i) {
+      if (confirmed[sgm[i].cid]) continue;
+      for(uint32_t j = i + 1; j < sgm.size(); ++j) {
+	if (sgm[i].cid != sgm[j].cid) continue;
+	// Different chromosomes?
+	if (sgm[i].refIndex != sgm[j].refIndex) {
+	  confirmed[sgm[i].cid] = true;
+	  break;
+	}
+	// Different pos? (segments are ordered)
+	if (sgm[j].start - sgm[i].end > c.maxSegmentSize) {
+	  confirmed[sgm[i].cid] = true;
+	  break;
+	}
+      }
+    }
+    
     // Output segments
-    std::vector<uint32_t> clustersup(sgm.size(), 0);
-    for(uint32_t i = 0; i < sgm.size(); ++i) ++clustersup[sgm[i].cid];
     std::cerr << "chr\tstart\tend\tnodeid\testcn\tclusterid\tedges" << std::endl;
     for(uint32_t i = 0; i < sgm.size(); ++i) {
-      // At least 2 segments are connected
-      if (clustersup[sgm[i].cid] > 1) {
+      if (confirmed[sgm[i].cid]) {
 	std::cerr << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << i << '\t' << sgm[i].cn << '\t' << sgm[i].cid << '\t';
 	for(uint32_t id2 = i; id2 < sgm.size(); ++id2) {
 	  if (es.find(std::make_pair(i, id2)) != es.end()) std::cerr << '(' << i << ',' << id2 << ")=" << es[std::make_pair(i, id2)] << ',';
@@ -473,6 +496,7 @@ namespace rayas
       ("qual,q", boost::program_options::value<uint16_t>(&c.minMapQual)->default_value(1), "min. mapping quality")
       ("clip,c", boost::program_options::value<uint16_t>(&c.minClip)->default_value(25), "min. clipping length")
       ("split,s", boost::program_options::value<uint16_t>(&c.minSplit)->default_value(3), "min. split-read support")
+      ("chrlen,l", boost::program_options::value<uint32_t>(&c.minChrLen)->default_value(10000000), "min. chromosome length")
       ("minsize,i", boost::program_options::value<uint32_t>(&c.minSegmentSize)->default_value(100), "min. segment size")
       ("maxsize,j", boost::program_options::value<uint32_t>(&c.maxSegmentSize)->default_value(10000), "max. segment size")
       ("contam,n", boost::program_options::value<float>(&c.contam)->default_value(0), "max. fractional tumor-in-normal contamination")
