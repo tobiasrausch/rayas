@@ -297,11 +297,11 @@ namespace rayas
 	uint32_t sdcov = 0;
 	uint32_t avgcov = 0;
 	covParams(nrun, cov, seedwin, avgcov, sdcov);
-	std::cout << "Tumor avg. coverage and SD coverage " << avgcov << "," << sdcov << std::endl;
+	//std::cout << "Tumor avg. coverage and SD coverage " << avgcov << "," << sdcov << std::endl;
 	uint32_t csdcov = 0;
 	uint32_t cavgcov = 0;
 	covParams(nrun, ccov, seedwin, cavgcov, csdcov);
-	std::cout << "Control avg. coverage and SD coverage " << cavgcov << "," << csdcov << std::endl;
+	//std::cout << "Control avg. coverage and SD coverage " << cavgcov << "," << csdcov << std::endl;
 	float expratio = (float) (avgcov) / (float) (cavgcov);
 
 	// Identify candidate breakpoints
@@ -455,7 +455,9 @@ namespace rayas
     ofile << "chr\tstart\tend\tnodeid\testcn\tclusterid\tedges" << std::endl;
     for(uint32_t i = 0; i < sgm.size(); ++i) {
       if (confirmed[sgm[i].cid]) {
-	ofile << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << i << '\t' << sgm[i].cn << '\t' << sgm[i].cid << '\t';
+	ofile << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t';
+	ofile << i << "[label=\"" << hdr->target_name[sgm[i].refIndex] << ':' << sgm[i].start << '-' << sgm[i].end << "\"];" << '\t';
+	ofile << sgm[i].cn << '\t' << sgm[i].cid << '\t';
 	for(uint32_t id2 = i; id2 < sgm.size(); ++id2) {
 	  if (es.find(std::make_pair(i, id2)) != es.end())
 	    ofile << i << "--" << id2 << "[label=\"" << es[std::make_pair(i, id2)] << "\"];";
