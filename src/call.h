@@ -451,16 +451,19 @@ namespace rayas
     }
     
     // Output segments
-    std::cerr << "chr\tstart\tend\tnodeid\testcn\tclusterid\tedges" << std::endl;
+    std::ofstream ofile(c.outfile.string().c_str());
+    ofile << "chr\tstart\tend\tnodeid\testcn\tclusterid\tedges" << std::endl;
     for(uint32_t i = 0; i < sgm.size(); ++i) {
       if (confirmed[sgm[i].cid]) {
-	std::cerr << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << i << '\t' << sgm[i].cn << '\t' << sgm[i].cid << '\t';
+	ofile << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t' << i << '\t' << sgm[i].cn << '\t' << sgm[i].cid << '\t';
 	for(uint32_t id2 = i; id2 < sgm.size(); ++id2) {
-	  if (es.find(std::make_pair(i, id2)) != es.end()) std::cerr << '(' << i << ',' << id2 << ")=" << es[std::make_pair(i, id2)] << ',';
+	  if (es.find(std::make_pair(i, id2)) != es.end())
+	    ofile << i << "--" << id2 << "[label=\"" << es[std::make_pair(i, id2)] << "\"];";
 	}
-	std::cerr << std::endl;
+	ofile << std::endl;
       }
     }
+    ofile.close();
     
     // Output split-reads
     //for(uint32_t i = 0; i < read1.size(); ++i) std::cerr << read1[i].first << '\t' << read1[i].second << std::endl;
@@ -502,7 +505,7 @@ namespace rayas
       ("contam,n", boost::program_options::value<float>(&c.contam)->default_value(0), "max. fractional tumor-in-normal contamination")
       ("genome,g", boost::program_options::value<boost::filesystem::path>(&c.genome), "genome fasta file")
       ("matched,m", boost::program_options::value<boost::filesystem::path>(&c.control), "matched control BAM")
-      ("outfile,o", boost::program_options::value<boost::filesystem::path>(&c.outfile)->default_value("sv.bcf"), "SV BCF output file")
+      ("outfile,o", boost::program_options::value<boost::filesystem::path>(&c.outfile)->default_value("out.bed"), "BED output file")
       ;
     
     boost::program_options::options_description hidden("Hidden options");
