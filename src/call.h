@@ -449,15 +449,33 @@ namespace rayas
 	}
       }
     }
-    
+
+    // Compute node degree (without self edges)
+    std::vector<uint32_t> degree(sgm.size(), 0);
+    for(uint32_t i = 0; i < sgm.size(); ++i) {
+      for(uint32_t j = i + 1; j < sgm.size(); ++j) {
+	if (es.find(std::make_pair(i, j)) != es.end()) {
+	  if (es[std::make_pair(i, j)] >= c.minSplit) {
+	    degree[i] += es[std::make_pair(i, j)];
+	    degree[j] += es[std::make_pair(i, j)];
+	  }
+	}
+      }
+    }
+	
     // Output segments
     std::ofstream ofile(c.outfile.string().c_str());
-    ofile << "chr\tstart\tend\tnodeid\testcn\tclusterid\tedges" << std::endl;
+    ofile << "chr\tstart\tend\tnodeid\tselfdegree\tdegree\testcn\tclusterid\tedges" << std::endl;
     for(uint32_t i = 0; i < sgm.size(); ++i) {
       if (confirmed[sgm[i].cid]) {
 	ofile << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t';
-	ofile << i << "[label=\"" << hdr->target_name[sgm[i].refIndex] << ':' << sgm[i].start << '-' << sgm[i].end << " (" << sgm[i].cid << ")" <<  "\"];" << '\t';
-	ofile << sgm[i].cn << '\t' << sgm[i].cid << '\t';
+	ofile << i << "[label=\"" << hdr->target_name[sgm[i].refIndex] << ':' << sgm[i].start << '-' << sgm[i].end << "(" << sgm[i].cid << ")" <<  "\"];" << '\t';
+	if ((es.find(std::make_pair(i, i)) != es.end()) && (es[std::make_pair(i, i)] >= c.minSplit)) {
+	  ofile << es[std::make_pair(i, i)] << '\t';
+	} else {
+	  ofile << "0\t";
+	}
+	ofile << degree[i] << '\t' << sgm[i].cn << '\t' << sgm[i].cid << '\t';
 	for(uint32_t id2 = i; id2 < sgm.size(); ++id2) {
 	  if (es.find(std::make_pair(i, id2)) != es.end()) {
 	    if (es[std::make_pair(i, id2)] >= c.minSplit) {
