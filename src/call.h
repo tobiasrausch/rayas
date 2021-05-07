@@ -456,11 +456,14 @@ namespace rayas
     for(uint32_t i = 0; i < sgm.size(); ++i) {
       if (confirmed[sgm[i].cid]) {
 	ofile << hdr->target_name[sgm[i].refIndex] << '\t' << sgm[i].start << '\t' << sgm[i].end << '\t';
-	ofile << i << "[label=\"" << hdr->target_name[sgm[i].refIndex] << ':' << sgm[i].start << '-' << sgm[i].end << "\"];" << '\t';
+	ofile << i << "[label=\"" << hdr->target_name[sgm[i].refIndex] << ':' << sgm[i].start << '-' << sgm[i].end << " (" << sgm[i].cid << ")" <<  "\"];" << '\t';
 	ofile << sgm[i].cn << '\t' << sgm[i].cid << '\t';
 	for(uint32_t id2 = i; id2 < sgm.size(); ++id2) {
-	  if (es.find(std::make_pair(i, id2)) != es.end())
-	    ofile << i << "--" << id2 << "[label=\"" << es[std::make_pair(i, id2)] << "\"];";
+	  if (es.find(std::make_pair(i, id2)) != es.end()) {
+	    if (es[std::make_pair(i, id2)] >= c.minSplit) {
+	      ofile << i << "--" << id2 << "[label=\"" << es[std::make_pair(i, id2)] << "\"];";
+	    }
+	  }
 	}
 	ofile << std::endl;
       }
@@ -501,7 +504,7 @@ namespace rayas
       ("qual,q", boost::program_options::value<uint16_t>(&c.minMapQual)->default_value(1), "min. mapping quality")
       ("clip,c", boost::program_options::value<uint16_t>(&c.minClip)->default_value(25), "min. clipping length")
       ("split,s", boost::program_options::value<uint16_t>(&c.minSplit)->default_value(3), "min. split-read support")
-      ("chrlen,l", boost::program_options::value<uint32_t>(&c.minChrLen)->default_value(10000000), "min. chromosome length")
+      ("chrlen,l", boost::program_options::value<uint32_t>(&c.minChrLen)->default_value(40000000), "min. chromosome length")
       ("minsize,i", boost::program_options::value<uint32_t>(&c.minSegmentSize)->default_value(100), "min. segment size")
       ("maxsize,j", boost::program_options::value<uint32_t>(&c.maxSegmentSize)->default_value(10000), "max. segment size")
       ("contam,n", boost::program_options::value<float>(&c.contam)->default_value(0), "max. fractional tumor-in-normal contamination")

@@ -12,6 +12,6 @@ Rayas was designed for paired tumor-normal data.
 
 You can convert the output into a dot graph. For instance, component 0 can be visualized using
 
-`awk '$6==0' out.bed | cut -f 4,7 | sed -e '1s/^/graph {\n/' | sed -e '$a}' > out.dot`
+`cut -f 4,7 out.bed | sed -e '1s/^/graph {\n/' | sed -e '$a}' > out.dot`
 
-`dot -Tps out.dot -o out.pdf`
+`dot -Tpdf out.dot -o out.pdf`
