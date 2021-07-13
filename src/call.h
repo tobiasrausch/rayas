@@ -317,10 +317,13 @@ namespace rayas
 	      if (!getcov(nrun, cov, i - seedwin, i, lcov)) continue;
 	      if (!getcov(nrun, cov, i, i+seedwin, rcov)) continue;
 	      if ((lcov * 1.5 < rcov) && (rcov > avgcov + 3 * sdcov)) {
-		uint32_t controlcov = 0;
-		if (!getcov(nrun, ccov, i, i+seedwin, controlcov)) continue;
-		if (controlcov > 0) {
-		  float obsratio = rcov / controlcov;
+		uint32_t controllcov = 0;
+		uint32_t controlrcov = 0;
+		if (!getcov(nrun, ccov, i - seedwin, i, controllcov)) continue;
+		if (!getcov(nrun, ccov, i, i+seedwin, controlrcov)) continue;
+		if ((controllcov * 1.5 < controlrcov) || (controlrcov > cavgcov + 3 * csdcov)) continue;
+		if (controlrcov > 0) {
+		  float obsratio = rcov / controlrcov;
 		  if (obsratio / expratio > 1.5) bpvec.push_back(Breakpoint(true, i, left[i], obsratio / expratio));
 		}
 	      }
@@ -335,10 +338,13 @@ namespace rayas
 	      if (!getcov(nrun, cov, i - seedwin, i, lcov)) continue;
 	      if (!getcov(nrun, cov, i, i+seedwin, rcov)) continue;
 	      if ((rcov * 1.5 < lcov) && (lcov > avgcov + 3 * sdcov)) {
-		uint32_t controlcov = 0;
-		if (!getcov(nrun, ccov, i - seedwin, i, controlcov)) continue;
-		if (controlcov > 0) {
-		  float obsratio = lcov / controlcov;
+		uint32_t controllcov = 0;
+		uint32_t controlrcov = 0;
+		if (!getcov(nrun, ccov, i - seedwin, i, controllcov)) continue;
+		if (!getcov(nrun, ccov, i, i+seedwin, controlrcov)) continue;
+		if ((controlrcov * 1.5 < controllcov) || (controllcov > cavgcov + 3 * csdcov)) continue;
+		if (controllcov > 0) {
+		  float obsratio = lcov / controllcov;
 		  if (obsratio / expratio > 1.5) bpvec.push_back(Breakpoint(false, i, right[i], obsratio / expratio));
 		}
 	      }
