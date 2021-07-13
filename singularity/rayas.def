@@ -1,0 +1,44 @@
+# Build image
+BootStrap: library
+From: ubuntu:16.04
+Stage: build
+
+%post
+	apt-get -y update
+	apt-get install -y autoconf build-essential cmake g++ gfortran git libcurl4-gnutls-dev hdf5-tools libboost-date-time-dev libboost-program-options-dev libboost-system-dev libboost-filesystem-dev libboost-iostreams-dev libbz2-dev libhdf5-dev libncurses-dev liblzma-dev zlib1g-dev
+	apt-get clean
+	rm -rf /var/lib/apt/lists/*
+	cd /opt
+	git clone --recursive https://github.com/tobiasrausch/rayas.git
+	cd /opt/rayas/
+	make STATIC=1 all
+	make install
+
+
+# Final image
+BootStrap: library
+From: alpine:3.9
+Stage: final
+
+%files from build
+       /opt/rayas/bin/rayas /bin/rayas
+
+%post
+	RAYASVERSION=`./bin/rayas --version`
+	echo "export RAYASVERSION=\"${RAYASVERSION}\"" >> $SINGULARITY_ENVIRONMENT
+	CREATEDATE=`date`
+	echo "export CREATEDATE=\"${CREATEDATE}\"" >> $SINGULARITY_ENVIRONMENT
+
+%environment
+	export PATH=/bin:$PATH
+
+%runscript
+	rayas
+
+%labels
+	Singularity definition file version v0.0.1
+
+%help
+	This is a container running rayas.
+	You can run rayas on files inside the directory where you start
+	the container, i.e.: singularity exec rayas.sif rayas --version
