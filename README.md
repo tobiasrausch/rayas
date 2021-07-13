@@ -1,6 +1,7 @@
 [![C/C++ CI](https://github.com/tobiasrausch/rayas/workflows/C/C++%20CI/badge.svg)](https://github.com/tobiasrausch/rayas/actions)
 [![Docker CI](https://github.com/tobiasrausch/rayas/workflows/Docker%20CI/badge.svg)](https://hub.docker.com/r/trausch/rayas/)
 [![GitHub license](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://github.com/tobiasrausch/rayas/blob/master/LICENSE)
+[![GitHub Releases](https://img.shields.io/github/release/tobiasrausch/rayas.svg)](https://github.com/tobiasrausch/rayas/releases)
 
 # Rayas
 
