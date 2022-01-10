@@ -21,7 +21,7 @@ displayUsage() {
   std::cout << std::endl;
   std::cout << "Commands:" << std::endl;
   std::cout << std::endl;
-  std::cout << "    call     discover templated insertions" << std::endl;
+  std::cout << "    call     discover templated insertion threads" << std::endl;
   std::cout << std::endl;
   std::cout << std::endl;
 }

@@ -425,6 +425,10 @@ namespace rayas
     // Sort split-reads by read ID
     std::sort(read1.begin(), read1.end());
     std::sort(read2.begin(), read2.end());
+    // Output split-reads
+    //for(uint32_t i = 0; i < read1.size(); ++i) std::cerr << read1[i].first << '\t' << read1[i].second << std::endl;
+    //for(uint32_t i = 0; i < read2.size(); ++i) std::cerr << read2[i].first << '\t' << read2[i].second << std::endl;
+    
     // Edges
     typedef std::pair<uint32_t, uint32_t> TEdge;
     typedef std::map<TEdge, uint32_t> TEdgeSupport;
@@ -493,10 +497,6 @@ namespace rayas
       }
     }
     ofile.close();
-    
-    // Output split-reads
-    //for(uint32_t i = 0; i < read1.size(); ++i) std::cerr << read1[i].first << '\t' << read1[i].second << std::endl;
-    //for(uint32_t i = 0; i < read2.size(); ++i) std::cerr << read2[i].first << '\t' << read2[i].second << std::endl;
     
     // Clean-up
     bam_hdr_destroy(hdr);

@@ -5,7 +5,7 @@
 
 # Rayas
 
-Templated insertion discovery
+Discovery of templated insertion threads
 
 # Running rayas
 
