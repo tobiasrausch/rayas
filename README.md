@@ -9,7 +9,7 @@ Discovery of templated insertion threads
 
 # Running rayas
 
-Rayas was designed for paired-end matched tumor-normal data.
+Rayas was designed for paired-end or single-end matched tumor-normal data. It can be used with short read or long read data.
 
 `rayas call -g <genome.fa> -m <control.bam> <tumor.bam>`
 
