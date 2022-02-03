@@ -7,13 +7,13 @@
 
 Discovery of templated insertion threads
 
-# Running rayas
+## Running rayas
 
-Rayas was designed for paired-end or single-end matched tumor-normal data. It can be used with short read or long read data.
+Rayas was designed for paired-end or single-end matched tumor-normal data. It can be used with short reads, for long reads please use [lorax](https://github.com/tobiasrausch/lorax).
 
 `rayas call -g <genome.fa> -m <control.bam> <tumor.bam>`
 
-# Simple graph visualization
+## Simple graph visualization
 
 You can convert the output into a dot graph. Each component represents one templated insertion cluster. Nodes are genomic segments and edges represent the cancer genome structure with edge weights equalling the sequencing read support.
 
