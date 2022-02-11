@@ -5,7 +5,7 @@ namespace rayas
 {
 
 
-  std::string rayasVersionNumber = "0.1.6";
+  std::string rayasVersionNumber = "0.2.1";
 
   inline 
     void printTitle(std::string const& title) 
