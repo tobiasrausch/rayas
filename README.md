@@ -20,3 +20,13 @@ You can convert the output into a dot graph. Each component represents one templ
 `cut -f 4,9 out.bed | sed -e '1s/^/graph {\n/' | sed -e '$a}' > out.dot`
 
 `dot -Tpdf out.dot -o out.pdf`
+
+## Citation
+
+Tobias Rausch, Rene Snajder, Adrien Leger, Milena Simovic, Oliver Stegle, Ewan Birney, Marc Jan Bonder, Aurelie Ernst, Jan O. Korbel.          
+Long-read sequencing of diagnosis and post-therapy medulloblastoma reveals complex rearrangement patterns and epigenetic signatures.            
+[bioRxiv 2022.02.20.480758](https://doi.org/10.1101/2022.02.20.480758)
+
+License
+-------
+Rayas is distributed under the BSD 3-Clause license. Consult the accompanying [LICENSE](https://github.com/tobiasrausch/rayas/blob/master/LICENSE) file for more details.
