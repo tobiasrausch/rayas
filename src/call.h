@@ -35,6 +35,7 @@ namespace rayas
     uint32_t minChrLen;
     uint32_t ploidy;
     float contam;
+    float sdthres;
     boost::filesystem::path genome;
     boost::filesystem::path outfile;
     boost::filesystem::path tumor;
@@ -315,15 +316,15 @@ namespace rayas
 	      uint32_t rcov = 0;
 	      if (!getcov(nrun, cov, i - seedwin, i, lcov)) continue;
 	      if (!getcov(nrun, cov, i, i+seedwin, rcov)) continue;
-	      if ((lcov * 1.5 < rcov) && (rcov > avgcov + 3 * sdcov)) {
+	      if ((lcov * (c.sdthres / 2) < rcov) && (rcov > avgcov + c.sdthres * sdcov)) {
 		uint32_t controllcov = 0;
 		uint32_t controlrcov = 0;
 		if (!getcov(nrun, ccov, i - seedwin, i, controllcov)) continue;
 		if (!getcov(nrun, ccov, i, i+seedwin, controlrcov)) continue;
-		if ((controllcov * 1.5 < controlrcov) || (controlrcov > cavgcov + 3 * csdcov)) continue;
+		if ((controllcov * (c.sdthres / 2) < controlrcov) || (controlrcov > cavgcov + c.sdthres * csdcov)) continue;
 		if (controlrcov > 0) {
 		  float obsratio = rcov / controlrcov;
-		  if (obsratio / expratio > 1.5) bpvec.push_back(Breakpoint(true, i, left[i], obsratio / expratio));
+		  if (obsratio / expratio > (c.sdthres / 2)) bpvec.push_back(Breakpoint(true, i, left[i], obsratio / expratio));
 		}
 	      }
 	    }
@@ -336,15 +337,15 @@ namespace rayas
 	      uint32_t rcov = 0;
 	      if (!getcov(nrun, cov, i - seedwin, i, lcov)) continue;
 	      if (!getcov(nrun, cov, i, i+seedwin, rcov)) continue;
-	      if ((rcov * 1.5 < lcov) && (lcov > avgcov + 3 * sdcov)) {
+	      if ((rcov * (c.sdthres / 2) < lcov) && (lcov > avgcov + c.sdthres * sdcov)) {
 		uint32_t controllcov = 0;
 		uint32_t controlrcov = 0;
 		if (!getcov(nrun, ccov, i - seedwin, i, controllcov)) continue;
 		if (!getcov(nrun, ccov, i, i+seedwin, controlrcov)) continue;
-		if ((controlrcov * 1.5 < controllcov) || (controllcov > cavgcov + 3 * csdcov)) continue;
+		if ((controlrcov * (c.sdthres / 2) < controllcov) || (controllcov > cavgcov + c.sdthres * csdcov)) continue;
 		if (controllcov > 0) {
 		  float obsratio = lcov / controllcov;
-		  if (obsratio / expratio > 1.5) bpvec.push_back(Breakpoint(false, i, right[i], obsratio / expratio));
+		  if (obsratio / expratio > (c.sdthres / 2)) bpvec.push_back(Breakpoint(false, i, right[i], obsratio / expratio));
 		}
 	      }
 	    }
@@ -528,6 +529,7 @@ namespace rayas
       ("minsize,i", boost::program_options::value<uint32_t>(&c.minSegmentSize)->default_value(100), "min. segment size")
       ("maxsize,j", boost::program_options::value<uint32_t>(&c.maxSegmentSize)->default_value(10000), "max. segment size")
       ("contam,n", boost::program_options::value<float>(&c.contam)->default_value(0), "max. fractional tumor-in-normal contamination")
+      ("sd,d", boost::program_options::value<float>(&c.sdthres)->default_value(3), "SD for coverage deviation")
       ("genome,g", boost::program_options::value<boost::filesystem::path>(&c.genome), "genome fasta file")
       ("matched,m", boost::program_options::value<boost::filesystem::path>(&c.control), "matched control BAM")
       ("outfile,o", boost::program_options::value<boost::filesystem::path>(&c.outfile)->default_value("out.bed"), "BED output file")
