@@ -7,6 +7,19 @@
 
 Discovery of templated insertion threads
 
+## Installing rayas
+
+Rayas is available as a [statically linked binary](https://github.com/tobiasrausch/rayas/releases/), a [singularity container (SIF file)](https://github.com/tobiasrausch/rayas/releases/) or as a [docker container](https://hub.docker.com/r/tobiasrausch/rayas/).
+You can also build Rayas from source using a recursive clone and make.
+Rayas depends on [HTSlib](https://github.com/samtools/htslib) and [Boost](https://www.boost.org/).
+
+`git clone --recursive https://github.com/tobiasrausch/rayas.git`
+
+`cd rayas/`
+
+`make all`
+
+
 ## Running rayas
 
 Rayas was designed for paired-end or single-end matched tumor-normal data. It can be used with short reads, for long reads please use [lorax](https://github.com/tobiasrausch/lorax).

@@ -529,7 +529,7 @@ namespace rayas
       ("minsize,i", boost::program_options::value<uint32_t>(&c.minSegmentSize)->default_value(100), "min. segment size")
       ("maxsize,j", boost::program_options::value<uint32_t>(&c.maxSegmentSize)->default_value(10000), "max. segment size")
       ("contam,n", boost::program_options::value<float>(&c.contam)->default_value(0), "max. fractional tumor-in-normal contamination")
-      ("sd,d", boost::program_options::value<float>(&c.sdthres)->default_value(3), "SD for coverage deviation")
+      ("sd,d", boost::program_options::value<float>(&c.sdthres)->default_value(3), "coverage cutoff, median + d*SD")
       ("genome,g", boost::program_options::value<boost::filesystem::path>(&c.genome), "genome fasta file")
       ("matched,m", boost::program_options::value<boost::filesystem::path>(&c.control), "matched control BAM")
       ("outfile,o", boost::program_options::value<boost::filesystem::path>(&c.outfile)->default_value("out.bed"), "BED output file")
