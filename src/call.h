@@ -32,6 +32,7 @@ namespace rayas
     uint16_t minSplit;
     uint32_t minSegmentSize;
     uint32_t maxSegmentSize;
+    uint32_t minSegDist;
     uint32_t minChrLen;
     uint32_t ploidy;
     float contam;
@@ -363,14 +364,14 @@ namespace rayas
 	      uint32_t bestLeft = i;
 	      for(int32_t k = i - 1; k >= 0; --k) {
 		if (!bpvec[k].left) break;
-		if (bpvec[i+1].pos - bpvec[k].pos > c.maxSegmentSize) break;
+		if (bpvec[i+1].pos - bpvec[k].pos > c.minSegDist) break;
 		if (bpvec[k].obsexp / bpvec[i].obsexp < 0.5) break;
 		bestLeft = k;
 	      }
 	      uint32_t bestRight = i + 1;
 	      for(uint32_t k = i + 2; k < bpvec.size(); ++k) {
 		if (bpvec[k].left) break;
-		if (bpvec[k].pos - bpvec[i].pos > c.maxSegmentSize) break;
+		if (bpvec[k].pos - bpvec[i].pos > c.minSegDist) break;
 		if (bpvec[k].obsexp / bpvec[i+1].obsexp < 0.5) break;
 		bestRight = k;
 	      }
@@ -449,7 +450,7 @@ namespace rayas
 	  break;
 	}
 	// Different pos? (segments are ordered)
-	if (sgm[j].start - sgm[i].end > c.maxSegmentSize) {
+	if (sgm[j].start - sgm[i].end > c.minSegDist) {
 	  confirmed[sgm[i].cid] = true;
 	  break;
 	}
@@ -528,6 +529,7 @@ namespace rayas
       ("chrlen,l", boost::program_options::value<uint32_t>(&c.minChrLen)->default_value(40000000), "min. chromosome length")
       ("minsize,i", boost::program_options::value<uint32_t>(&c.minSegmentSize)->default_value(100), "min. segment size")
       ("maxsize,j", boost::program_options::value<uint32_t>(&c.maxSegmentSize)->default_value(10000), "max. segment size")
+      ("minsegdist,e", boost::program_options::value<uint32_t>(&c.minSegDist)->default_value(10000), "min. distance between segments")
       ("contam,n", boost::program_options::value<float>(&c.contam)->default_value(0), "max. fractional tumor-in-normal contamination")
       ("sd,d", boost::program_options::value<float>(&c.sdthres)->default_value(3), "coverage cutoff, median + d*SD")
       ("genome,g", boost::program_options::value<boost::filesystem::path>(&c.genome), "genome fasta file")
