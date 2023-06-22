@@ -5,7 +5,7 @@
 
 # Rayas
 
-Discovery of templated insertion threads
+Discovery of templated insertion threads and somatic retrocopy insertions
 
 ## Installing rayas
 
@@ -33,6 +33,17 @@ You can convert the output into a dot graph. Each component represents one templ
 `cut -f 4,9 out.bed | sed -e '1s/^/graph {\n/' | sed -e '$a}' > out.dot`
 
 `dot -Tpdf out.dot -o out.pdf`
+
+## Somatic retrocopy insertions
+
+For somatic retrocopy insertions, the distance between exons tends to be smaller than the default cutoff of 10kbp. To detect clusters involving retrocopies you have to lower the segment distance threshold:
+
+`rayas call -e 1000 -g <genome.fa> -m <control.bam> <tumor.bam>`
+
+To catch smaller exons, you may also want to adjust the minimal size:
+
+`rayas call -d 5 -i 50 -e 1000 -g <genome.fa> -m <control.bam> <tumor.bam>`
+
 
 ## Citation
 
